@@ -1,0 +1,43 @@
+name: Deploy original rollout media
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - name: Assemble original videos
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir _site _large
+          cp -R assets _site/assets
+          cp .nojekyll _site/.nojekyll
+          gh release download hd-rollouts --repo "$GITHUB_REPOSITORY" --pattern '*.mp4' --dir _large
+          python - <<'PY'
+          import json, pathlib, shutil
+          for name, target in json.loads(pathlib.Path('.github/large-videos.json').read_text()).items():
+              destination = pathlib.Path('_site') / target
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              shutil.move(pathlib.Path('_large') / name, destination)
+          assert sum(p.stat().st_size for p in pathlib.Path('_site').rglob('*') if p.is_file()) < 900 * 1024**2
+          PY
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
